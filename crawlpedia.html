@@ -1,0 +1,1228 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Crawlpedia</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+<style>
+/* Layout concept: a dark encyclopedia article. One full-viewport canvas sits over the page and draws the creature,
+   plus every text effect (dimming, swaps, floating tags), so the article's own DOM is never touched while it animates. */
+:root{
+  --bg:#030008;          /* page ground: the canvas covers eaten words with this exact value */
+  --ink:#e6e6eb;
+  --mute:#8d8b98;
+  --rule:#3a3841;
+  --line:#27252f;
+  --acc:#c98ae9;         /* links, wordmark and infobox heads take the current species' colour */
+  --frame:#27252f;
+  --serif:"Linux Libertine","Libertinus Serif","Source Serif 4",Georgia,"Times New Roman",serif;
+  --sans:Arial,"Helvetica Neue",Helvetica,"Liberation Sans",sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{background:var(--bg);-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.68 var(--sans);-webkit-text-size-adjust:100%;overflow-x:hidden}
+html.imm,html.imm body{overflow:hidden}
+button{font:inherit;color:inherit}
+a{color:var(--acc)}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+.wrap{max-width:880px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-top:0;padding-bottom:150px}
+
+/* header */
+.top{display:flex;align-items:center;gap:10px;padding:14px 0 12px}
+.burger{width:30px;height:30px;padding:3px;background:none;border:0;color:var(--ink);cursor:pointer;flex:none}
+.burger svg{width:100%;height:100%;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}
+.wm{font:600 25px/1 var(--serif);font-variant:small-caps;letter-spacing:.03em;color:var(--acc);white-space:nowrap}
+.acct{margin-left:auto;display:flex;gap:14px;font-size:13px;white-space:nowrap}
+.acct a{color:var(--acc);text-decoration:none}
+@media (max-width:480px){.acct a:first-child{display:none}.wm{font-size:22px}}
+@media (max-width:380px){.acct a:nth-child(2){display:none}.top{gap:8px}}
+
+/* title + tabs */
+.tb{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;border-bottom:1px solid var(--rule);padding-bottom:5px}
+h1{font:400 clamp(25px,7.4vw,34px)/1.15 var(--serif);margin:6px 0 0;min-width:0;overflow-wrap:anywhere}
+.count{font:700 13px/1 var(--sans);color:var(--acc);background:none;border:0;padding:8px 0 5px;cursor:pointer;white-space:nowrap;flex:none}
+.tabs{display:flex;justify-content:space-between;flex-wrap:wrap;gap:0 12px;border-bottom:1px solid var(--rule);margin-bottom:14px;font-size:13px}
+.tabs a{display:inline-block;padding:9px 1px 8px;margin-right:14px;color:var(--acc);text-decoration:none;border-bottom:2px solid transparent}
+.tabs div:last-child a{margin-right:0;margin-left:14px}
+.tabs a.on{color:var(--ink);border-bottom-color:var(--ink)}
+
+/* habitat */
+.habwrap{height:clamp(250px,50vw,390px);margin:0 0 20px}
+.habitat{position:relative;height:100%;border:1px solid var(--line);background:linear-gradient(to right,rgba(255,255,255,.03) 1px,transparent 1px) 0 0/25% 100%}
+.hb{position:absolute;width:46px;height:46px;padding:0;display:grid;place-items:center;border:1px solid var(--line);border-radius:2px;background:rgba(3,0,8,.55);color:#c9c7d3;cursor:pointer;z-index:1}
+.hb.tr{top:10px;right:10px}.hb.bl{bottom:10px;left:10px}.hb.br{bottom:10px;right:10px}
+.hb svg{width:21px;height:21px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.hb[aria-pressed="true"].bm svg{fill:currentColor}
+.hb[aria-pressed="true"]{color:var(--acc);border-color:var(--acc)}
+.hint{position:absolute;left:62px;right:62px;bottom:12px;margin:0;text-align:center;font-size:12px;line-height:1.4;color:var(--mute);transition:opacity .6s;pointer-events:none}
+.hint.off{opacity:0}
+.hname{display:none;position:absolute;left:16px;top:14px;font:italic 15px var(--serif);color:var(--mute)}
+html.imm .habwrap{position:relative}
+html.imm .habitat{position:fixed;inset:0;height:auto;z-index:5;border:0;background-color:var(--bg)}
+html.imm .hname{display:block}
+html.imm .hint{left:80px;right:80px}
+html.imm .top,html.imm .tb,html.imm .tabs,html.imm #article,html.imm .auto{visibility:hidden}
+html.imm .hb.tr{top:max(12px,env(safe-area-inset-top,0px));right:max(12px,env(safe-area-inset-right,0px))}
+html.imm .hb.bl{bottom:max(12px,env(safe-area-inset-bottom,0px));left:max(12px,env(safe-area-inset-left,0px))}
+html.imm .hb.br{bottom:max(12px,env(safe-area-inset-bottom,0px));right:max(12px,env(safe-area-inset-right,0px))}
+
+/* article */
+#article{min-height:60vh}
+#article h2{font:400 clamp(22px,5.8vw,27px)/1.2 var(--serif);border-bottom:1px solid var(--rule);margin:30px 0 12px;padding-bottom:3px}
+#article h3{font:700 16px/1.3 var(--sans);margin:22px 0 8px}
+#article p{margin:0 0 13px}
+#article ul,#article ol{margin:0 0 13px;padding-left:1.7em}
+#article li{margin-bottom:3px}
+#article a.l{color:var(--acc);text-decoration:none}
+#article sup.r{font-size:.72em;color:var(--acc);opacity:.85;line-height:0}
+#article ol.refs{font-size:14px;line-height:1.7;padding-left:1.9em}
+#article ol.refs li{margin-bottom:7px;overflow-wrap:anywhere}
+
+.ib{border:1px solid var(--line);background:var(--bg);padding:12px 14px 14px;margin:2px 0 18px;font-size:13.5px;line-height:1.55}
+.ibimg{display:flex;justify-content:center;color:#d6d4df;padding:2px 0 8px}
+.ibimg svg{width:132px;height:auto;max-width:100%}
+.ibn{text-align:center;font-style:italic;color:var(--acc);margin-bottom:6px}
+.ibh{text-align:center;font-weight:700;color:var(--acc);margin:8px 0 6px}
+.ib table{border-collapse:collapse;width:100%}
+.ib td{padding:2px 10px 2px 0;vertical-align:top}
+.ib td:first-child{white-space:nowrap}
+.ibc{text-align:center;margin-top:10px}
+.fig{border:1px solid var(--frame);background:var(--bg);padding:10px;margin:6px 0 18px;max-width:360px}
+.fig svg{display:block;width:100%;height:auto}
+.fig .cap{font-size:12.5px;line-height:1.45;margin-top:8px}
+@media (min-width:700px){
+  .ib{float:right;width:270px;margin:4px 0 16px 24px}
+  .fig{float:right;clear:right;width:300px;margin:6px 0 16px 24px}
+}
+
+/* canvas overlay */
+#fx{position:fixed;left:0;top:0;pointer-events:none;z-index:6}
+
+/* species drawer */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:20}
+.drawer{position:fixed;top:0;bottom:0;left:0;width:min(380px,90vw);background:#07040e;border-right:1px solid var(--line);z-index:21;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+.dh{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 8px;font:600 20px var(--serif)}
+.dh button{width:36px;height:36px;background:none;border:1px solid var(--line);border-radius:3px;cursor:pointer;font-size:20px;line-height:1}
+.dtools{display:flex;gap:8px;padding:6px 16px 8px}
+.dtools input{flex:1;min-width:0;background:#0e0a17;border:1px solid var(--line);color:var(--ink);padding:10px;border-radius:3px;font:14px var(--sans)}
+.dtools button,.more{background:none;border:1px solid var(--acc);color:var(--acc);padding:0 14px;border-radius:3px;cursor:pointer;font:13px var(--sans)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;padding:2px 16px 10px}
+.chips button{border:1px solid var(--line);background:none;color:var(--mute);padding:6px 11px;border-radius:999px;font:12px var(--sans);cursor:pointer}
+.chips button.on{color:var(--ink);border-color:var(--acc)}
+#dList{list-style:none;margin:0;padding:0 0 24px;overflow:auto;flex:1;overscroll-behavior:contain}
+#dList button.row{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:0;border-top:1px solid #15111d;padding:12px 16px;cursor:pointer;font:14px var(--sans)}
+#dList button.row.cur{background:#120d1d}
+#dList .nm{flex:1;font-style:italic;min-width:0;overflow-wrap:anywhere}
+#dList .kd{color:var(--mute);font-size:12px}
+#dList .sw{width:10px;height:10px;border-radius:50%;flex:none}
+#dList .more{display:block;margin:14px 16px;padding:10px 14px}
+.empty{padding:18px 16px;color:var(--mute);font-size:13px}
+
+/* floating controls */
+.auto{position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:12;display:flex;align-items:center;gap:9px;padding:10px 15px;border-radius:999px;border:1px solid var(--line);background:rgba(8,5,16,.86);color:var(--ink);font:12px/1 var(--sans);cursor:pointer;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);white-space:nowrap}
+.auto i{width:8px;height:8px;border-radius:50%;background:var(--mute)}
+.auto.on i{background:var(--acc);box-shadow:0 0 8px var(--acc)}
+.auto.paused i{animation:none;opacity:.5}
+.toast{position:fixed;left:50%;bottom:calc(68px + env(safe-area-inset-bottom,0px));transform:translate(-50%,8px);max-width:calc(100vw - 32px);background:#14101e;border:1px solid var(--line);color:var(--ink);padding:9px 14px;border-radius:4px;font-size:13px;line-height:1.4;text-align:center;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;z-index:30}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+@media (prefers-reduced-motion:reduce){.hint,.toast{transition:none}}
+</style>
+
+<div class="wrap" id="wrap">
+  <header class="top">
+    <button class="burger" id="menuBtn" aria-label="Browse species"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+    <span class="wm">CrawlpediA</span>
+    <nav class="acct" aria-label="Account"><a href="#" class="stub">Donate</a><a href="#" class="stub">Create account</a><a href="#" class="stub">Log in</a></nav>
+  </header>
+  <div class="tb"><h1 id="title">Eoscutipes Heminus</h1><button class="count" id="countBtn" aria-label="Browse all species">1111 species</button></div>
+  <div class="tabs">
+    <div><a href="#" class="on">Article</a><a href="#" id="tTalk">Talk</a></div>
+    <div><a href="#" class="on">Read</a><a href="#" id="tSrc">View source</a><a href="#" id="tHist">View history</a></div>
+  </div>
+  <div class="habwrap" id="habwrap">
+    <section class="habitat" id="hab" aria-label="Crawler habitat">
+      <div class="hname" id="hname"></div>
+      <button class="hb tr bm" id="bmBtn" aria-label="Bookmark this species" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M7 4h10v16l-5-4-5 4z"/></svg></button>
+      <button class="hb bl" id="sndBtn" aria-label="Turn sound on" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><g id="sndOn" style="display:none"><path d="M15.2 9.2a4 4 0 010 5.6"/><path d="M17.8 6.6a7.6 7.6 0 010 10.8"/></g><path id="sndOff" d="M15.5 9.5l5 5M20.5 9.5l-5 5"/></svg></button>
+      <button class="hb br" id="fsBtn" aria-label="Fullscreen"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg></button>
+      <p class="hint" id="hint">Touch the page to lure the crawler. Scroll to send it into the article.</p>
+    </section>
+  </div>
+  <article id="article"></article>
+</div>
+<canvas id="fx" aria-hidden="true"></canvas>
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" hidden aria-label="Species browser">
+  <div class="dh"><span>Species</span><button id="dClose" aria-label="Close">&times;</button></div>
+  <div class="dtools"><input id="dSearch" type="search" placeholder="Search 1111 species" autocomplete="off"><button id="dRandom">Random</button></div>
+  <div class="chips" id="dChips">
+    <button data-f="all" class="on">All</button><button data-f="arachnid">Arachnids</button><button data-f="myriapod">Myriapods</button><button data-f="insect">Insects</button><button data-f="mark">Bookmarked</button>
+  </div>
+  <ul id="dList"></ul>
+</aside>
+<button class="auto on" id="autoBtn" aria-pressed="true"><i></i><span id="autoTx">Autopilot on</span></button>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+(function(){
+'use strict';
+/* ================= shared state + helpers ================= */
+var TAU=Math.PI*2,PI=Math.PI;
+function clamp(v,a,b){return v<a?a:v>b?b:v}
+function lerp(a,b,t){return a+(b-a)*t}
+var rnd=Math.random;
+function $(id){return document.getElementById(id)}
+function angDiff(a,b){var d=(b-a)%TAU;if(d>PI)d-=TAU;if(d<-PI)d+=TAU;return d}
+function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function hsl(c,a,dl,sh){var h=(((c[0]+(sh||0))%360)+360)%360;return 'hsla('+h.toFixed(0)+','+c[1]+'%,'+clamp(c[2]+(dl||0),0,100)+'%,'+(a==null?1:a)+')'}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function hash(i){var x=Math.sin(i*127.1+311.7)*43758.5453;return x-Math.floor(x)}
+
+var cv=$('fx'),ctx=cv.getContext('2d');
+var art=$('article'),hab=$('hab'),habwrap=$('habwrap'),rootEl=document.documentElement;
+var VW=window.innerWidth,VH=window.innerHeight,DPR=1,SC=1,scrollY=0,lastSY=0,now=0;
+var REDUCED=!!(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches);
+var MOBILE=!!(window.matchMedia&&matchMedia('(pointer: coarse)').matches)||VW<700;
+var imm=false,drawerOpen=false;
+var cr=null,oldCr=null,curSp=null;
+var P={x:0,y:0,active:false,last:-99,down:false,touch:false};
+var brain={mode:'wander',tx:0,ty:0,speed:1,orbit:0,nextPick:0};
+var auto={on:!REDUCED,start:4,y:0,x:0,ph:0,lastUser:-99,done:0,sy:0,set:false,running:false,armed:!REDUCED};
+var tags=[];
+/* ================= species ================= */
+var PAL={
+  ember:{kind:'arachnid',style:'fire',acc:[285,68,72],frame:null,
+    leg:[8,100,60],glow:[4,100,50],hi:[14,100,90],foot:[2,100,58],haze:[2,100,50],ghost:[0,0,62],
+    chew:[[4,100,58],[28,100,56],[48,100,60],[54,100,84]],chewTx:[4,100,10],hot:[[0,0,100],[50,100,62]]},
+  lime:{kind:'arachnid',style:'joint',acc:[352,80,70],frame:[72,60,30],
+    leg:[72,95,52],glow:[72,100,50],ghost:[70,40,50],body:[0,0,92],
+    chew:[[70,100,48],[48,100,62],[30,100,64]],chewTx:[70,100,8],hot:[[52,100,62],[0,0,100]]},
+  verdant:{kind:'myriapod',style:'panes',acc:[355,78,68],frame:[135,40,34],
+    seg:[66,82,52],edge:[42,90,42],pane:[100,60,26],leg:[135,38,52],node:[62,92,60],head:[120,100,58],ghost:[85,45,42],
+    chew:[[135,90,50],[30,78,76],[48,100,60]],chewTx:[130,100,8],hot:[[130,100,82],[0,0,100]]},
+  violet:{kind:'myriapod',style:'brackets',acc:[252,100,78],frame:[250,55,40],
+    seg:[58,92,58],edge:[250,95,68],pane:[255,60,28],leg:[246,85,62],node:[56,95,60],head:[226,100,58],ghost:[246,60,50],
+    chew:[[56,95,60],[228,100,60]],chewTx:[240,80,8],chewTxs:[[240,80,8],[0,0,100]],hot:[[240,100,80],[56,100,70]]},
+  azure:{kind:'insect',style:'outline',acc:[232,100,77],frame:[232,70,40],
+    body:[188,92,56],wing:[262,100,62],leg:[236,75,60],blue:[232,100,60],ghost:[240,70,50],
+    chew:[[232,100,60],[262,100,66]],chewTx:[0,0,100],hot:[[236,100,76]],
+    tags:[[232,100,62],[206,100,58],[262,100,68],[188,95,56]],tagFill:false},
+  prism:{kind:'insect',style:'blocks',acc:[345,100,70],frame:[190,60,34],
+    lime:[86,100,48],crimson:[340,92,46],cyan:[190,92,50],leg:[188,50,56],ghost:[190,50,50],
+    chew:[[86,100,52],[340,92,52],[190,92,52]],chewTx:[0,0,6],hot:[[190,100,70]],
+    tags:[[86,100,52],[345,92,52],[190,92,52],[130,85,46]],tagFill:true}
+};
+var KINDS={
+  arachnid:{label:'Arachnid',pals:['ember','lime'],
+    A:['Eo','Neo','Proto','Archi','Aranei','Phalango','Trochi','Lyco','Salti','Mygalo','Atypo','Cteno','Thomi','Tetra'],
+    B:['scutipes','aranea','chelis','lyra','plax','pes','soma','stoma','nema']},
+  myriapod:{label:'Myriapod',pals:['verdant','violet'],
+    A:['Scolo','Litho','Geo','Scuti','Crater','Myrio','Chilo','Pleuro','Noto','Epi','Ana','Henico','Strigo'],
+    B:['pendra','morpha','phila','gera','stigma','podus','pedes','soma','cephala']},
+  insect:{label:'Insect',pals:['azure','prism'],
+    A:['Lexi','Verbo','Pagi','Noda','Hemi','Ortho','Coleo','Hymeno','Lepido','Diptero','Blatto','Mantho','Phasmo'],
+    B:['ptera','coris','gnatha','pteryx','glossa','thorax','cerus','metra','stoma']}
+};
+var KIND_KEYS=['arachnid','myriapod','insect'];
+var EPI=['Heminus','Dorsatus','Lineatus','Obscurus','Nocturnus','Pallidus','Rubrus','Viridis','Cursor','Silens','Vagans','Errans','Textor','Verbivorus','Lectoris','Paginae','Hyperlinkus','Scriptor','Linkifer','Tabularis','Citatus','Marginalis','Footnotus','Indexus','Anchorae','Bifidus','Sericeus','Tenuis','Maximus','Minutus','Fulgens','Umbratus'];
+var FAMS=['Verbidae','Paginidae','Linkidae','Anchoridae','Scrollidae','Marginidae','Footnotidae','Indexidae','Hyperidae','Textidae','Citatidae','Glossidae'];
+var SPN=1111,spCache={};
+function cap(s){return s.charAt(0).toUpperCase()+s.slice(1)}
+function species(i){
+  i=((i%SPN)+SPN)%SPN;
+  if(spCache[i])return spCache[i];
+  var s;
+  if(i===0){s={id:0,kind:'arachnid',pal:'ember',genus:'Eoscutipes',epi:'Heminus',S:1,segs:0,speed:1,shift:0,glyph:0,leg:1,seed:7,fam:'Verbidae'}}
+  else{
+    var r=mulberry(((i*2654435761)>>>0)^0x9e3779b9);
+    var kind=KIND_KEYS[Math.floor(r()*3)],K=KINDS[kind];
+    var pal=K.pals[Math.floor(r()*K.pals.length)];
+    var genus=cap(K.A[Math.floor(r()*K.A.length)]+K.B[Math.floor(r()*K.B.length)]);
+    s={id:i,kind:kind,pal:pal,genus:genus,epi:EPI[Math.floor(r()*EPI.length)],S:.88+r()*.28,
+       segs:kind==='myriapod'?10+Math.floor(r()*8):0,speed:.85+r()*.35,shift:Math.floor((r()-.5)*30),
+       glyph:Math.floor(r()*4),leg:.9+r()*.3,seed:i,fam:FAMS[Math.floor(r()*FAMS.length)]};
+  }
+  s.name=s.genus+' '+s.epi;
+  spCache[i]=s;return s;
+}
+
+/* ================= article markup ================= */
+/* [[link]]  **bold**  //italic//  ^[n] superscript reference. Every word becomes <span class="w">. */
+function words(t,c){var o='',p=t.split(/(\s+)/),i,s;for(i=0;i<p.length;i++){s=p[i];if(!s)continue;o+=/^\s+$/.test(s)?' ':'<span class="w'+c+'">'+esc(s)+'</span>'}return o}
+function rt(s){
+  var re=/(\[\[.+?\]\]|\*\*.+?\*\*|\/\/.+?\/\/|\^\[\d+\])/g,o='',l=0,m,k;
+  while((m=re.exec(s))){
+    o+=words(s.slice(l,m.index),'');
+    k=m[0];
+    if(k.charAt(0)==='[')o+='<a class="l" href="#" tabindex="-1">'+words(k.slice(2,-2),' k1')+'</a>';
+    else if(k.charAt(0)==='*')o+='<b>'+words(k.slice(2,-2),' k2')+'</b>';
+    else if(k.charAt(0)==='/')o+='<i>'+words(k.slice(2,-2),' k4')+'</i>';
+    else o+='<sup class="r">'+k.slice(1)+'</sup>';
+    l=re.lastIndex;
+  }
+  return o+words(s.slice(l),'');
+}
+function P_(s){return '<p>'+rt(s)+'</p>'}
+function H2(s){return '<h2>'+rt(s)+'</h2>'}
+function UL(a){return '<ul>'+a.map(function(x){return '<li>'+rt(x)+'</li>'}).join('')+'</ul>'}
+function OL(a,c){return '<ol class="'+(c||'')+'">'+a.map(function(x){return '<li>'+rt(x)+'</li>'}).join('')+'</ol>'}
+
+/* small line drawings for the infobox */
+function glyph(kind){
+  var s='<svg viewBox="0 0 120 84" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round" aria-hidden="true">',i;
+  if(kind==='arachnid'){
+    var ky=[10,28,52,72],fy=[24,40,66,80],hy=[30,36,42,48];
+    for(i=0;i<4;i++)s+='<path d="M54 '+hy[i]+'L30 '+ky[i]+'L14 '+fy[i]+'"/><path d="M66 '+hy[i]+'L90 '+ky[i]+'L106 '+fy[i]+'"/>';
+    s+='<rect x="53" y="22" width="14" height="14"/><rect x="50" y="38" width="20" height="24"/><rect x="57" y="27" width="4" height="4"/><path d="M54 46h12M54 52h12"/>';
+  }else if(kind==='insect'){
+    s+='<rect x="54" y="10" width="12" height="12"/><rect x="50" y="24" width="20" height="18"/><rect x="52" y="44" width="16" height="30"/>';
+    s+='<path d="M57 10L48 2M63 10L72 2M50 29L30 20L16 30M50 35L28 40L14 52M50 40L32 58L20 74M70 29L90 20L104 30M70 35L92 40L106 52M70 40L88 58L100 74"/>';
+    s+='<path d="M54 52h12M54 58h12M54 64h12"/>';
+  }else{
+    for(i=0;i<7;i++){var y=6+i*10,o=Math.sin(i*.55)*7;
+      s+='<rect x="'+(53+o)+'" y="'+y+'" width="14" height="9"/><path d="M'+(53+o)+' '+(y+4)+'L'+(40+o)+' '+(y+2)+'L'+(30+o)+' '+(y+8)+'M'+(67+o)+' '+(y+4)+'L'+(80+o)+' '+(y+2)+'L'+(90+o)+' '+(y+8)+'"/>'}
+  }
+  return s+'</svg>';
+}
+function infobox(sp){
+  var k=sp.kind,legs=k==='arachnid'?8:k==='insect'?6:(sp.segs-1)*2;
+  var cls=k==='arachnid'?'Arachnomorpha':k==='myriapod'?'Chilopodomorpha':'Hexapodomorpha';
+  var ord=k==='arachnid'?'Araneomimes':k==='myriapod'?'Scolopendromimes':'Lexicoptera';
+  function rows(a){return a.map(function(r){return '<tr><td>'+rt(r[0])+'</td><td>'+rt(r[1])+'</td></tr>'}).join('')}
+  var cls1=[['Kingdom:','Crawlera'],['Phylum:','Arthropodomorpha'],['Class:',cls],['Order:',ord],['Family:',sp.fam],['Genus:',sp.genus],['Species:',sp.epi.toLowerCase()]];
+  var ana=[['Legs:',String(legs)],k==='myriapod'?['Segments:',String(sp.segs)]:['Gait:',k==='arachnid'?'Alternating':'Tripod'],['Diet:','Text']];
+  return '<aside class="ib"><div class="ibimg">'+glyph(k)+'</div>'+
+    '<div class="cap ibn">'+rt(sp.genus+' '+sp.epi.toLowerCase())+'</div>'+
+    '<div class="cap ibh">'+rt('Scientific classification')+'</div><table>'+rows(cls1)+'</table>'+
+    '<div class="cap ibh">'+rt('Anatomy')+'</div><table>'+rows(ana)+'</table>'+
+    '<div class="cap ibc">'+rt('See //Crawler taxonomy//.')+'</div>'+
+    '<div class="cap ibh">'+rt('Diversity^[1]')+'</div><div class="cap ibc">'+rt('1111 species')+'</div></aside>';
+}
+function figClade(){
+  var t='font-size="10.5" font-family="Arial,Helvetica,sans-serif"';
+  return '<div class="fig"><svg viewBox="0 0 330 180" fill="none" stroke="#d6d4df" stroke-width="1" aria-hidden="true">'+
+    '<path d="M10 56H45M45 22V89M45 22H186M45 89H80M80 58V120M80 58H186M80 120H115M115 94V146M115 94H186M115 146H150M150 130V162M150 130H186M150 162H186"/>'+
+    '<g stroke="none" fill="#d6d4df" '+t+'><text x="192" y="26">Scutigeromorpha</text><text x="192" y="62">Lithobiomorpha</text><text x="192" y="98">Craterostigmomorpha</text><text x="192" y="134">Scolopendromorpha</text><text x="192" y="166">Geophilomorpha</text></g>'+
+    '<g stroke="none" style="fill:var(--acc)" '+t+' font-style="italic"><text x="50" y="17">Notostigmophora</text><text x="86" y="84">Pleurostigmophora</text><text x="154" y="143">Epimorpha</text></g>'+
+    '</svg><div class="cap">'+rt('Relationships among the five orders of centipedes, after molecular studies.')+'</div></div>';
+}
+
+/* ----- arachnid ----- */
+var refsSpider=[
+  '"World Spider Catalog". //World Spider Catalog//. Natural History Museum Bern.',
+  'Foelix, Rainer F. (1996). //Biology of Spiders//. New York: Oxford University Press.',
+  'Meehan, C.J.; Olson, E.J.; Reudink, M.W.; Kyser, T.K.; Curry, R.L. (2009). "Herbivory in a spider through exploitation of an ant–plant mutualism". //Current Biology//. **19** (19): R892–R893.',
+  'Nyffeler, Martin; Birkhofer, Klaus (2017). "An estimated 400–800 million tons of prey are annually killed by the global spider community". //The Science of Nature//. **104** (3–4): 30.',
+  'Selden, P.A.; Shear, W.A. (2008). "Fossil evidence for the origin of spider spinnerets, and a proposed arachnid order". //PNAS//. **105** (52): 20781–85. [[doi:10.1073/pnas.0809174106]].',
+  'Dimitrov, Dimitar; Hormiga, Gustavo (2021). "Spider Diversification Through Space and Time". //Annual Review of Entomology//. **66**: 225–241. [[doi:10.1146/annurev-ento-061520-083414]].',
+  'Schultz, Stanley A.; Schultz, Marguerite J. (2009). //The Tarantula Keeper\'s Guide//. Hauppauge, New York: Barron\'s.'
+];
+function leadArachnid(sp){return [
+  '**'+sp.name+'** is a crawler, a procedurally animated digital creature that lives in the margins of web pages and feeds on text. It is modelled on the true spiders ([[Araneae]]) and has the same basic body plan: two body sections, eight legs and no antennae.^[1]',
+  'Crawlers of this species walk with an alternating gait, lifting four legs at a time. When a foot lands on a word, the word is flagged, chewed and sometimes swapped for another word from the same page. Most of the damage heals within a minute.'
+]}
+function bodyArachnid(){return [
+  H2('Description'),
+  P_('Spiders are [[chelicerates]], arthropods whose body is divided into two parts: a front section called the cephalothorax and a rear section called the abdomen. Unlike insects, they have no antennae and no wings. The cephalothorax carries the eyes, the mouthparts and four pairs of walking legs, and a narrow waist, the pedicel, joins it to the abdomen.^[2]'),
+  P_('Most spiders have eight eyes, though the number ranges from none in some cave species to six or four in others. Spiders cannot chew. They inject digestive enzymes into their prey and drink the liquefied tissue. Their nervous system is highly centralised, with the ganglia fused into one mass in the cephalothorax. Spiders have no extensor muscles in their legs and straighten them instead by raising the pressure of the fluid inside.^[2]'),
+  H2('Silk and webs'),
+  P_('The abdomen carries [[spinnerets]], appendages that extrude silk from as many as six types of silk gland. Silk is used for much more than webs: spiders wrap prey, build egg sacs, line burrows and drift on air currents on a single thread, a habit called ballooning. Web designs vary widely in shape, size and the amount of sticky thread used. Not all spiders build webs. Wolf spiders and jumping spiders hunt their prey directly.'),
+  H2('Diet'),
+  P_('Spiders are predators, and the great majority feed on insects. Most detect prey by touch, through vibrations in a web or in the ground that fine hairs and slit-shaped sensory organs on the legs pick up. Jumping spiders hunt by sight. A few species also eat pollen or nectar, and one, //Bagheera kiplingi//, feeds mainly on plant tissue.^[3] One estimate puts the prey eaten by all the world\'s spiders at 400 to 800 million tonnes a year.^[4]'),
+  H2('Fossil history'),
+  P_('Silk-making arachnids with no true spinnerets are known from the Devonian. True spiders appear in rocks that are between about 318 and 299 million years old, and they closely resemble the most primitive living suborder, the [[Mesothelae]].^[5] The two main groups of modern spiders, [[Mygalomorphae]] and [[Araneomorphae]], first appear in the Triassic, more than 200 million years ago.^[6]'),
+  H2('Taxonomy'),
+  P_('Spiders form the order [[Araneae]], named by Clerck in 1757. More than 52,000 species in 139 families are recognised, and the order ranks seventh in species diversity among all orders of organisms.^[1] There are two suborders: the Mesothelae, which keep a segmented abdomen, and the Opisthothelae, which holds the tarantulas and trapdoor spiders (Mygalomorphae) and the true spiders (Araneomorphae).'),
+  H2('Further reading'),
+  OL(refsSpider,'refs')
+].join('')}
+
+/* ----- myriapod ----- */
+var refsMyria=[
+  'Edgecombe, Gregory D.; Giribet, Gonzalo (2007). "Evolutionary biology of centipedes (Myriapoda: Chilopoda)". //Annual Review of Entomology//. **52**: 151–170.',
+  'Minelli, Alessandro, ed. (2011). //Treatise on Zoology – Anatomy, Taxonomy, Biology: The Myriapoda//. Vol. 1. Leiden: Brill.',
+  'Molinari, Jesús; et al. (2005). "Predation by giant centipedes, //Scolopendra gigantea//, on three species of bats in a Venezuelan cave". //Caribbean Journal of Science//. **41** (2): 340–346.',
+  'Shear, William A.; Edgecombe, Gregory D. (2010). "The geological record and phylogeny of the Myriapoda". //Arthropod Structure & Development//. **39** (2–3): 174–190.'
+];
+function leadMyria(sp){return [
+  '**'+sp.name+'** is a crawler modelled on the centipedes: a long, flexible body of repeated segments with a pair of legs on each.^[1] This species has '+sp.segs+' segments and '+((sp.segs-1)*2)+' legs and moves in a travelling wave, leaving a trail of faded text behind it.',
+  'Where its body passes, words lose their colour and some of them are replaced. The text recovers after a while.'
+]}
+function bodyMyria(sp){return [
+  H2('Description'),
+  P_('Centipedes (class [[Chilopoda]]) are predatory arthropods with long, flattened bodies. The trunk is made of repeated segments, each carrying one pair of legs, which separates them from millipedes, whose segments carry two pairs.^[2] The number of leg pairs is always odd and ranges from 15 to 191, depending on the species.^[1]'),
+  P_('The first pair of legs is modified into [[forcipules]], venomous claws used to seize and kill prey. The last pair, the ultimate legs, is often long and thin and works as a sensory organ, and in some species as a pincer. Centipedes breathe through a tracheal system that opens at paired spiracles. They lack the waxy cuticle of insects and arachnids, so they lose water quickly and need damp places to live.'),
+  H2('Diet and behaviour'),
+  P_('Centipedes are generalist carnivores. They hunt insects, spiders, worms and snails, and the largest tropical species take lizards, frogs, mice and even bats.^[3] Most hunt at night and shelter by day under stones, bark and leaf litter. They find prey with their antennae, which are covered in sensory hairs, and many have poor eyesight or none at all.'),
+  H2('Classification'),
+  P_('Five orders are recognised: [[Scutigeromorpha]] (house centipedes), [[Lithobiomorpha]] (stone centipedes), [[Craterostigmomorpha]] (two species, in Tasmania and New Zealand), [[Scolopendromorpha]] and [[Geophilomorpha]] (soil centipedes).^[1]'),
+  figClade(),
+  P_('An older scheme split the class into Anamorpha (Lithobiomorpha and Scutigeromorpha) and Epimorpha (Geophilomorpha and Scolopendromorpha), according to how the young develop, and left the position of the Craterostigmomorpha uncertain. Anamorphic species hatch with few segments and add more as they moult. Epimorphic species hatch with the full number. Molecular studies support the Epimorpha as a group within the Pleurostigmophora but find the Anamorpha to be paraphyletic.^[1]'),
+  UL(['The head is flattened and carries one pair of antennae.','The first pair of legs is modified into venomous forcipules.','Each trunk segment carries a single pair of legs.','Species develop either by anamorphosis or by epimorphosis.']),
+  H2('Fossil history'),
+  P_('The fossil record of centipedes reaches back to the Silurian, more than 400 million years ago.^[4] Cretaceous amber preserves centipedes that are close to living forms, so the main groups were probably in place well before the end of the age of the dinosaurs.'),
+  H2('Further reading'),
+  OL(refsMyria,'refs')
+].join('')}
+
+/* ----- insect ----- */
+var refsInsect=[
+  'Gullan, P.J.; Cranston, P.S. (2014). //The Insects: An Outline of Entomology//. 5th ed. Chichester: Wiley-Blackwell.',
+  'Chapman, R.F.; Simpson, S.J.; Douglas, A.E., eds. (2013). //The Insects: Structure and Function//. 5th ed. Cambridge: Cambridge University Press.',
+  'Conner, William E.; Corcoran, Aaron J. (2012). "Sound strategies: the 65-million-year-old battle between bats and insects". //Annual Review of Entomology//. **57**: 21–39.',
+  'Misof, Bernhard; et al. (2014). "Phylogenomics resolves the timing and pattern of insect evolution". //Science//. **346** (6210): 763–767.'
+];
+function leadInsect(sp){return [
+  '**'+sp.name+'** is a crawler modelled on the insects: a body in three parts, six legs and a pair of antennae.^[1] It collects keywords. As it moves it lifts words off the page, turns them into tags and carries them around itself for a while before putting them back.',
+  'The tags are chosen from words of four letters or more. Short function words are left where they are.'
+]}
+function bodyInsect(){return [
+  H2('External anatomy'),
+  P_('Insects (class [[Insecta]]) have a body divided into three parts: the head, the thorax and the abdomen. The head bears a pair of antennae, compound eyes, usually three simple eyes called ocelli, and the mouthparts.^[2] The thorax has three segments, named from front to back the prothorax, mesothorax and metathorax. Each carries a pair of legs, and the last two usually carry the wings.'),
+  P_('The abdomen is the largest part of most insects, with up to eleven segments, and is less heavily armoured than the head or thorax. Each segment has a hardened upper plate, the tergum, and a lower plate, the sternum, joined by flexible membrane.'),
+  H2('Circulatory system'),
+  P_('Insects have an open circulatory system. The blood, called haemolymph, is pumped forward by a tubular heart along the back, in waves of contraction, and then flows freely among the organs. It carries nutrients and waste but little oxygen, which reaches the tissues through the tracheae, a branching network of air-filled tubes that open at spiracles along the thorax and abdomen.^[2]'),
+  H2('Nervous system'),
+  P_('The central nervous system has a brain in the head and a ventral nerve cord that runs along the underside of the body, with a ganglion in each segment or group of fused segments. The brain receives signals from the eyes and antennae, and much of the local control of the legs is handled by the ganglia.'),
+  H2('Communication'),
+  P_('Insects communicate with chemicals, sound, light, touch and vibration. Crickets and grasshoppers make sound by stridulation, drawing a scraper over a file-like ridge, and many have tympanal organs, thin membranes on the legs or abdomen, that pick up airborne sound. Others send vibrations through plant stems or the ground, a method that suits insects living among dense vegetation, where sound carries poorly.^[1]'),
+  P_('Some moths produce ultrasonic clicks that warn bats of their unpalatability, a strategy called acoustic aposematism, and others are thought to jam bat sonar.^[3] Social insects such as ants, termites and bees rely heavily on pheromones. A honey bee returning to the hive dances to tell its nestmates the direction of a food source relative to the sun and the distance to be flown.'),
+  H2('Parasitism'),
+  P_('Many insects live as parasites or parasitoids. Fleas and lice feed on the blood or skin of mammals and birds, while parasitoid wasps lay their eggs in or on other insects and the larvae eat the host from within. Some insects, mosquitoes among them, are vectors that carry the pathogens of human disease.'),
+  H2('Care of young'),
+  P_('Most insects abandon their eggs, but there are many exceptions. Earwigs guard their eggs and young, some bugs stay with their nymphs, and social insects rear their brood in nests, where workers feed the larvae.'),
+  H2('Modern diversity'),
+  P_('More than a million insect species have been described, roughly two thirds of all known animal species, and estimates of the true number run to several million.^[1] Phylogenomic studies date the origin of insects to the Ordovician, about 480 million years ago.^[4]'),
+  H2('Further reading'),
+  OL(refsInsect,'refs')
+].join('')}
+
+function articleHTML(sp){
+  var k=sp.kind,lead=k==='arachnid'?leadArachnid(sp):k==='myriapod'?leadMyria(sp):leadInsect(sp);
+  var body=k==='arachnid'?bodyArachnid():k==='myriapod'?bodyMyria(sp):bodyInsect(sp);
+  return infobox(sp)+lead.map(function(x){return P_(x)}).join('')+body;
+}
+/* ================= word store: measured once, drawn on the canvas ================= */
+var N=0,X,Y,WD,HT,FLG,FS,RH,DUR,BLANK,ST=null,T0,RES,CI;
+var FONT=[],TXT=[],REP=[],byLen=[];
+var rowsM=new Map(),ROWH=40;
+var act=new Set();
+var habR={x:0,y:0,w:0,h:0},docH=0;
+var stats={eaten:0};
+var MAXTAGS=MOBILE?22:34;
+var BG='#030008',INK='#e6e6eb',accCss='#c98ae9';
+
+function measure(){
+  var els=art.querySelectorAll('.w'),n=els.length;
+  var sx=window.pageXOffset||0,sy=window.pageYOffset||0;
+  var realloc=(n!==N)||!ST;
+  N=n;
+  X=new Float32Array(n);Y=new Float32Array(n);WD=new Float32Array(n);HT=new Float32Array(n);
+  FLG=new Uint8Array(n);FS=new Float32Array(n);RH=new Float32Array(n);
+  FONT=new Array(n);TXT=new Array(n);byLen=[];rowsM=new Map();
+  var cache=new Map(),i,el,r,blk,m,cl,f,k,a,L,cs;
+  for(i=0;i<n;i++){
+    el=els[i];r=el.getBoundingClientRect();
+    X[i]=r.left+sx;Y[i]=r.top+sy;WD[i]=r.width;HT[i]=r.height;
+    cl=el.className;f=0;
+    if(cl.indexOf('k1')>-1)f|=1;if(cl.indexOf('k2')>-1)f|=2;if(cl.indexOf('k4')>-1)f|=4;
+    FLG[i]=f;
+    blk=el.closest('p,li,h2,h3,td,th,.cap')||el.parentNode;
+    m=cache.get(blk);
+    if(!m){cs=getComputedStyle(blk);m={fs:parseFloat(cs.fontSize)||15,ff:cs.fontFamily,fw:cs.fontWeight,fi:cs.fontStyle};cache.set(blk,m)}
+    FS[i]=m.fs;
+    FONT[i]=(((f&4)||m.fi==='italic')?'italic ':'')+((f&2)?'700':m.fw)+' '+m.fs+'px '+m.ff;
+    TXT[i]=el.textContent;
+    RH[i]=hash(i);
+    k=Math.floor((Y[i]+HT[i]/2)/ROWH);a=rowsM.get(k);if(!a){a=[];rowsM.set(k,a)}a.push(i);
+    L=TXT[i].length;(byLen[L]||(byLen[L]=[])).push(i);
+  }
+  if(realloc){
+    ST=new Uint8Array(n);T0=new Float32Array(n);RES=new Float32Array(n);CI=new Uint8Array(n);
+    DUR=new Float32Array(n);BLANK=new Uint8Array(n);REP=new Array(n);act.clear();tags.length=0;
+  }
+  var wr=habwrap.getBoundingClientRect();
+  habR={x:wr.left+sx,y:wr.top+sy,w:wr.width,h:wr.height};
+  docH=Math.max(rootEl.scrollHeight,document.body.scrollHeight);
+  var cs2=getComputedStyle(rootEl).getPropertyValue('--acc').trim();if(cs2)accCss=cs2;
+}
+
+/* ----- state changes ----- */
+function bite(i){
+  if(ST[i]!==0)return;
+  ST[i]=1;T0[i]=now;CI[i]=Math.floor(rnd()*8);DUR[i]=.7+rnd()*.9;REP[i]=null;BLANK[i]=0;
+  act.add(i);stats.eaten++;
+  if(rnd()<.3)sfx('chew');
+}
+function dimWord(i){
+  if(ST[i]!==0)return;
+  ST[i]=3;T0[i]=now;RES[i]=now+24+rnd()*40;REP[i]=null;act.add(i);
+}
+function touchAt(x,y,rad,p){
+  if(!N||imm||p<=0)return;
+  var k0=Math.floor((y-rad)/ROWH),k1=Math.floor((y+rad)/ROWH),best=-1,bd=1e9,k,a,j,i,dx,dy,d,r2=rad*rad;
+  for(k=k0;k<=k1;k++){
+    a=rowsM.get(k);if(!a)continue;
+    for(j=0;j<a.length;j++){
+      i=a[j];if(ST[i]!==0)continue;
+      dx=Math.max(X[i]-x,0,x-(X[i]+WD[i]));dy=Math.max(Y[i]-y,0,y-(Y[i]+HT[i]));d=dx*dx+dy*dy;
+      if(d<=r2&&d<bd){bd=d;best=i}
+    }
+  }
+  if(best>=0&&rnd()<p)bite(best);
+}
+function dimAround(x,y,r,p){
+  if(!N||imm)return;
+  var k0=Math.floor((y-r)/ROWH),k1=Math.floor((y+r)/ROWH),k,a,j,i,dx,dy,r2=r*r;
+  for(k=k0;k<=k1;k++){
+    a=rowsM.get(k);if(!a)continue;
+    for(j=0;j<a.length;j++){
+      i=a[j];if(ST[i]!==0||RH[i]>=p)continue;
+      dx=Math.max(X[i]-x,0,x-(X[i]+WD[i]));dy=Math.max(Y[i]-y,0,y-(Y[i]+HT[i]));
+      if(dx*dx+dy*dy<=r2)dimWord(i);
+    }
+  }
+}
+function restoreAll(){
+  act.forEach(function(i){ST[i]=0;REP[i]=null});
+  act.clear();tags.length=0;
+}
+function pickRep(i){
+  var L=TXT[i].length,a=byLen[L+Math.floor(rnd()*3)-1]||byLen[L];
+  if(!a||!a.length)return null;
+  var j=a[Math.floor(rnd()*a.length)];
+  if(j===i||TXT[j]===TXT[i])return null;
+  var t=TXT[j];
+  if(rnd()<.14){t=t+(rnd()<.5?'-':'/')+TXT[a[Math.floor(rnd()*a.length)]]}
+  return t;
+}
+function spawnTag(i){
+  var p=cr.pal,col=p.tags[Math.floor(rnd()*p.tags.length)];
+  tags.push({i:i,txt:TXT[i],x:X[i]+WD[i]/2,y:Y[i]+HT[i]/2,vx:(rnd()-.5)*80,vy:(rnd()-.5)*80,a:0,ta:0,
+    fs:Math.round(FS[i]*(.9+rnd()*.4)),w:0,born:now,life:9+rnd()*10,rad:(34+rnd()*190)*cr.S,
+    om:(rnd()<.5?-1:1)*(.3+rnd()*.8),ph:rnd()*TAU,col:col,line:rnd()<.14});
+  ST[i]=4;T0[i]=now;act.add(i);
+}
+
+function updateWords(){
+  var t=now;
+  act.forEach(function(i){
+    var s=ST[i],age=t-T0[i];
+    if(s===1){
+      if(age>.16){ST[i]=2;T0[i]=t;BLANK[i]=rnd()<.14?1:0;if(!BLANK[i]&&rnd()<.62)REP[i]=pickRep(i)}
+    }else if(s===2){
+      if(age>DUR[i]){
+        if(cr&&cr.pal.tags&&tags.length<MAXTAGS&&!BLANK[i]&&!REP[i]&&TXT[i].length>=4&&/[A-Za-z]{4}/.test(TXT[i])&&rnd()<.6)spawnTag(i);
+        else{ST[i]=3;T0[i]=t;RES[i]=t+24+rnd()*36}
+      }
+    }else if(s===3){
+      if(t>RES[i]){ST[i]=0;REP[i]=null;act.delete(i)}
+    }
+  });
+}
+function updateTags(dt){
+  if(!cr)return;
+  for(var k=tags.length-1;k>=0;k--){
+    var t=tags[k],age=now-t.born,tx,ty,kk;
+    if(age<t.life){
+      var ang=t.ph+t.om*age;
+      tx=cr.cx+Math.cos(ang)*t.rad;ty=cr.cy+Math.sin(ang)*t.rad*.8;kk=3.4;
+      t.ta=ang+PI/2+Math.sin(age*1.3+t.ph)*.9;
+    }else{
+      tx=X[t.i]+WD[t.i]/2;ty=Y[t.i]+HT[t.i]/2;kk=10;t.ta=0;
+      var dx=tx-t.x,dy=ty-t.y;
+      if(dx*dx+dy*dy<25||age>t.life+2.4){ST[t.i]=3;T0[t.i]=now;RES[t.i]=now+8+rnd()*18;tags.splice(k,1);continue}
+    }
+    t.vx+=(tx-t.x)*kk*dt;t.vy+=(ty-t.y)*kk*dt;
+    var dmp=Math.exp(-2.8*dt);t.vx*=dmp;t.vy*=dmp;
+    t.x+=t.vx*dt;t.y+=t.vy*dt;
+    t.a+=angDiff(t.a,t.ta)*Math.min(1,6*dt);
+  }
+}
+
+/* ----- drawing (viewport coordinates) ----- */
+var DIMS=[];
+function dimStyle(a){var k=Math.round(a*40);return DIMS[k]||(DIMS[k]='rgba(3,0,8,'+(k/40*.74).toFixed(3)+')')}
+function drawWords(){
+  if(!N||imm||!act.size)return;
+  var pal=cr?cr.pal:PAL.ember,sh=cr?cr.shift:0;
+  ctx.textBaseline='middle';ctx.textAlign='left';
+  act.forEach(function(i){
+    var y=Y[i]-scrollY,h=HT[i];
+    if(y>VH+30||y+h<-30)return;
+    var x=X[i],w=WD[i],s=ST[i],age=now-T0[i],ci,c,a,rem;
+    if(s===1){
+      c=pal.hot[CI[i]%pal.hot.length];
+      ctx.fillStyle=hsl(c,.16,0,sh);ctx.fillRect(x-2,y-1,w+4,h+2);
+      ctx.strokeStyle=hsl(c,1,0,sh);ctx.lineWidth=1.3;ctx.strokeRect(x-2,y-1,w+4,h+2);
+    }else if(s===2){
+      ci=CI[i]%pal.chew.length;c=pal.chew[ci];
+      ctx.fillStyle=hsl(c,.93,0,sh);ctx.fillRect(x-2,y-1,w+4,h+2);
+      ctx.strokeStyle=hsl(c,1,16,sh);ctx.lineWidth=1;ctx.strokeRect(x-2,y-1,w+4,h+2);
+      if(!BLANK[i]){
+        ctx.fillStyle=hsl(pal.chewTxs?pal.chewTxs[ci]:pal.chewTx,1);
+        ctx.font=FONT[i];ctx.fillText(REP[i]||TXT[i],x,y+h/2+.5,Math.max(w,22));
+      }
+    }else if(s===3){
+      if(REP[i]){
+        ctx.fillStyle=BG;ctx.fillRect(x-1.5,y-1,w+3,h+2);
+        ctx.fillStyle=(FLG[i]&1)?accCss:INK;ctx.font=FONT[i];ctx.fillText(REP[i],x,y+h/2+.5,Math.max(w,22));
+      }else{
+        a=Math.min(1,age/.5);rem=RES[i]-now;if(rem<.9)a*=Math.max(0,rem/.9);
+        ctx.fillStyle=dimStyle(a);ctx.fillRect(x-1,y,w+2,h);
+      }
+    }else if(s===4){
+      ctx.fillStyle=BG;ctx.fillRect(x-1.5,y-1,w+3,h+2);
+    }
+  });
+}
+function drawTags(){
+  if(!cr||!cr.pal.tags||!tags.length||imm)return;
+  var pal=cr.pal,sh=cr.shift,k,t,y,h,cy=cr.cy-scrollY;
+  ctx.textBaseline='middle';ctx.textAlign='center';
+  for(k=0;k<tags.length;k++){
+    t=tags[k];y=t.y-scrollY;if(y<-80||y>VH+80)continue;
+    ctx.font=t.fs+'px Arial,Helvetica,sans-serif';
+    if(!t.w)t.w=ctx.measureText(t.txt).width+9;
+    h=t.fs+6;
+    if(t.line){ctx.strokeStyle=hsl(t.col,.5,0,sh);ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(t.x,y);ctx.lineTo(cr.cx,cy);ctx.stroke()}
+    ctx.save();ctx.translate(t.x,y);ctx.rotate(t.a);
+    if(pal.tagFill){
+      ctx.fillStyle=hsl(t.col,.94,0,sh);ctx.fillRect(-t.w/2,-h/2,t.w,h);
+      ctx.fillStyle=hsl([0,0,5],1);
+    }else{
+      ctx.fillStyle=hsl(t.col,.16,0,sh);ctx.fillRect(-t.w/2,-h/2,t.w,h);
+      ctx.strokeStyle=hsl(t.col,.95,0,sh);ctx.lineWidth=1;ctx.strokeRect(-t.w/2,-h/2,t.w,h);
+      ctx.fillStyle=hsl(t.col,1,24,sh);
+    }
+    ctx.fillText(t.txt,0,.5);
+    ctx.restore();
+  }
+}
+/* ================= creatures ================= */
+var KX=0,KY=0,FX2=0,FY2=0;
+
+/* two-bone IK; (ox,oy) says which way the knee should bend. Writes KX,KY (knee) and FX2,FY2 (foot, clamped to reach). */
+function ik(hx,hy,fx,fy,l1,l2,ox,oy){
+  var dx=fx-hx,dy=fy-hy,d=Math.sqrt(dx*dx+dy*dy)||1e-4,mx=l1+l2-.5,mn=Math.abs(l1-l2)+.5;
+  var dd=d<mn?mn:d>mx?mx:d,ux=dx/d,uy=dy/d;
+  var a=(dd*dd+l1*l1-l2*l2)/(2*dd),h=Math.sqrt(Math.max(0,l1*l1-a*a));
+  var nx=-uy,ny=ux;if(nx*ox+ny*oy<0){nx=-nx;ny=-ny}
+  KX=hx+ux*a+nx*h;KY=hy+uy*a+ny*h;FX2=hx+ux*dd;FY2=hy+uy*dd;
+}
+
+/* a planted foot stays put until it is too far from where it should be, then it steps */
+function stepLeg(c,L,hx,hy,rx,ry,vx,vy,dt,allow,Rw,reach){
+  if(L.st>=0){
+    L.st+=dt/L.dur;
+    if(L.st>=1){L.st=-1;L.fx=L.tx;L.fy=L.ty;L.lift=0;c.plant(L)}
+    else{var u=L.st,e=u<.5?2*u*u:1-Math.pow(-2*u+2,2)/2;L.fx=L.sx+(L.tx-L.sx)*e;L.fy=L.sy+(L.ty-L.sy)*e;L.lift=Math.sin(u*PI)}
+    return;
+  }
+  var dx=L.fx-rx,dy=L.fy-ry,d=Math.sqrt(dx*dx+dy*dy);
+  var ex=L.fx-hx,ey=L.fy-hy,hd=Math.sqrt(ex*ex+ey*ey);
+  if(d>Rw*c.stepK&&(allow||d>Rw*c.over||hd>reach*.97)){
+    var sp=Math.sqrt(vx*vx+vy*vy),lead=Math.min(Rw*.55,sp*.15+Rw*.1),ux=sp>1?vx/sp:0,uy=sp>1?vy/sp:0;
+    L.st=0;L.sx=L.fx;L.sy=L.fy;
+    L.tx=rx+ux*lead+(rnd()-.5)*Rw*.1;L.ty=ry+uy*lead+(rnd()-.5)*Rw*.1;
+    L.dur=c.stepT+rnd()*.07;
+  }
+}
+
+/* faint rotated squares left around the body */
+function ghostTick(c,dt,spawn){
+  c.gt-=dt;
+  if(c.gt<=0){c.gt=.09+rnd()*.12;if(c.ghosts.length<46)spawn(c)}
+  var g=c.ghosts,i;
+  for(i=g.length-1;i>=0;i--){g[i].age+=dt;if(g[i].age>g[i].life){g[i]=g[g.length-1];g.pop()}}
+}
+function ghostDraw(c,col){
+  var g=c.ghosts,k,o,a;
+  ctx.lineWidth=1;
+  for(k=0;k<g.length;k++){
+    o=g[k];a=.28*Math.min(1,o.age/.25)*(1-o.age/o.life)*c.alpha;
+    ctx.strokeStyle=hsl(col,a,0,c.shift);
+    ctx.save();ctx.translate(o.x,o.y);ctx.rotate(o.a);ctx.strokeRect(-o.s/2,-o.s/2,o.s,o.s);ctx.restore();
+  }
+}
+function spawnGhostBody(c){
+  var s=c.S,r=rnd()*TAU,d=rnd()*70*s;
+  c.ghosts.push({x:c.cx+Math.cos(r)*d,y:c.cy+Math.sin(r)*d,s:(26+rnd()*72)*s,a:rnd()*TAU,age:0,life:2+rnd()*2.6});
+}
+function spawnGhostChain(c){
+  var q=c.P[Math.floor(rnd()*c.n)],r=rnd()*TAU,d=rnd()*c.sz*2.2;
+  c.ghosts.push({x:q.x+Math.cos(r)*d,y:q.y+Math.sin(r)*d,s:c.sz*(1.4+rnd()*1.7),a:q.a+(rnd()-.5)*1.3,age:0,life:2+rnd()*2.6});
+}
+
+/* ---------------- spiders and insects: rigid body, IK legs ---------------- */
+function Walker(sp,x,y){
+  var kind=sp.kind,RR,AN,HX,HY,n,sd,k,a,R;
+  this.sp=sp;this.kind=kind;this.pal=PAL[sp.pal];this.shift=sp.shift;this.S=SC*sp.S;
+  this.cx=x;this.cy=y;this.vx=0;this.vy=0;this.h=rnd()*TAU;this.ghosts=[];this.gt=0;this.dg=0;this.alpha=1;this.dying=0;
+  this.stepK=.34;this.over=.8;this.stepT=.14;this.bp=.5;this.millR=kind==='insect'?55:46;
+  this.legs=[];
+  if(kind==='arachnid'){RR=[100,112,108,96];AN=[30,68,110,150];HX=[12,5,-2,-9];HY=[5,7,7,6];n=4}
+  else{RR=[92,104,98];AN=[50,92,135];HX=[12,-1,-14];HY=[17,17,17];n=3}
+  for(sd=1;sd>=-1;sd-=2)for(k=0;k<n;k++){
+    a=AN[k]*PI/180;R=RR[k]*sp.leg;
+    this.legs.push({sd:sd,grp:(k+(sd>0?0:1))&1,hx:HX[k],hy:sd*HY[k],rx:HX[k]+Math.cos(a)*R,ry:sd*(HY[k]+Math.sin(a)*R),R:R,
+      l1:R*(kind==='insect'?.7:.74),l2:R*(kind==='insect'?.9:.86),fx:0,fy:0,sx:0,sy:0,tx:0,ty:0,st:-1,dur:.18,lift:0,
+      hwx:0,hwy:0,kx:0,ky:0,ex:0,ey:0});
+  }
+  this.placeFeet();
+}
+Walker.prototype.placeFeet=function(){
+  var s=this.S,c=Math.cos(this.h),sn=Math.sin(this.h),i,L;
+  for(i=0;i<this.legs.length;i++){
+    L=this.legs[i];
+    L.fx=this.cx+(L.rx*c-L.ry*sn)*s;L.fy=this.cy+(L.rx*sn+L.ry*c)*s;L.st=-1;
+    L.hwx=this.cx+(L.hx*c-L.hy*sn)*s;L.hwy=this.cy+(L.hx*sn+L.hy*c)*s;
+    L.kx=L.hwx;L.ky=L.hwy;L.ex=L.fx;L.ey=L.fy;
+  }
+};
+Walker.prototype.plant=function(L){touchAt(L.fx,L.fy,10*this.S+4,this.bp);sfx('step')};
+Walker.prototype.carry=function(dy){this.cy+=dy};
+Walker.prototype.teleport=function(x,y){this.cx=x;this.cy=y;this.vx=0;this.vy=0;this.ghosts.length=0;this.placeFeet()};
+Walker.prototype.update=function(dt){
+  var s=this.S,b=brain,dx=b.tx-this.cx,dy=b.ty-this.cy,d=Math.sqrt(dx*dx+dy*dy)||1,ins=this.kind==='insect';
+  var burst=ins?.55+.45*Math.max(0,Math.sin(now*1.7+this.sp.seed)):1;
+  var vmax=(ins?160:175)*s*this.sp.speed*b.speed*burst;
+  var vd=Math.min(vmax,d*2.6);if(this.dying)vd=0;
+  var a=1-Math.exp(-4.5*dt);
+  this.vx+=(dx/d*vd-this.vx)*a;this.vy+=(dy/d*vd-this.vy)*a;
+  this.cx+=this.vx*dt;this.cy+=this.vy*dt;
+  var sp=Math.sqrt(this.vx*this.vx+this.vy*this.vy);
+  if(sp>12*s)this.h+=angDiff(this.h,Math.atan2(this.vy,this.vx))*(1-Math.exp(-9*dt));
+  var c=Math.cos(this.h),sn=Math.sin(this.h),legs=this.legs,i,L,s0=0,s1=0,rx,ry;
+  for(i=0;i<legs.length;i++)if(legs[i].st>=0){if(legs[i].grp)s1++;else s0++}
+  for(i=0;i<legs.length;i++){
+    L=legs[i];
+    L.hwx=this.cx+(L.hx*c-L.hy*sn)*s;L.hwy=this.cy+(L.hx*sn+L.hy*c)*s;
+    rx=this.cx+(L.rx*c-L.ry*sn)*s;ry=this.cy+(L.rx*sn+L.ry*c)*s;
+    stepLeg(this,L,L.hwx,L.hwy,rx,ry,this.vx,this.vy,dt,(L.grp?s0:s1)===0,L.R*s,(L.l1+L.l2)*s);
+  }
+  ghostTick(this,dt,spawnGhostBody);
+  this.dg-=dt;
+  if(this.dg<=0){this.dg=.12;if(!this.dying)dimAround(this.cx,this.cy,66*s,.5)}
+};
+Walker.prototype.draw=function(){
+  var s=this.S,legs=this.legs,i,L,c=Math.cos(this.h),sn=Math.sin(this.h);
+  for(i=0;i<legs.length;i++){
+    L=legs[i];ik(L.hwx,L.hwy,L.fx,L.fy,L.l1*s,L.l2*s,-sn*L.sd,c*L.sd);
+    L.kx=KX;L.ky=KY;L.ex=FX2;L.ey=FY2;
+  }
+  if(this.kind==='arachnid')drawSpider(this);else drawInsect(this);
+};
+
+function drawSpider(c){
+  var s=c.S,p=c.pal,legs=c.legs,sh=c.shift,al=c.alpha,i,L,cx=c.cx,cy=c.cy;
+  ghostDraw(c,p.ghost);
+  ctx.lineCap='round';ctx.lineJoin='round';
+  if(p.style==='fire'){
+    var R=118*s,g=ctx.createRadialGradient(cx,cy,0,cx,cy,R);
+    g.addColorStop(0,hsl(p.haze,.26*al,0,sh));g.addColorStop(1,hsl(p.haze,0,0,sh));
+    ctx.fillStyle=g;ctx.fillRect(cx-R,cy-R,2*R,2*R);
+    ctx.beginPath();
+    for(i=0;i<legs.length;i++){L=legs[i];ctx.moveTo(L.hwx,L.hwy);ctx.quadraticCurveTo(2*L.kx-(L.hwx+L.ex)/2,2*L.ky-(L.hwy+L.ey)/2,L.ex,L.ey)}
+    ctx.globalCompositeOperation='lighter';
+    ctx.strokeStyle=hsl(p.glow,.13*al,0,sh);ctx.lineWidth=10*s;ctx.stroke();
+    ctx.globalCompositeOperation='source-over';
+    ctx.strokeStyle=hsl(p.leg,.92*al,0,sh);ctx.lineWidth=2.6*s;ctx.stroke();
+    ctx.setLineDash([1.6*s,4.4*s]);ctx.lineDashOffset=-now*16*s;
+    ctx.strokeStyle=hsl(p.hi,.95*al,0,sh);ctx.lineWidth=1.3*s;ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle=hsl(p.foot,al,0,sh);ctx.beginPath();
+    for(i=0;i<legs.length;i++){L=legs[i];ctx.moveTo(L.ex+3.3*s,L.ey);ctx.arc(L.ex,L.ey,3.3*s,0,TAU)}
+    ctx.fill();
+    ctx.save();ctx.translate(cx,cy);ctx.rotate(c.h);
+    ctx.fillStyle='rgba(226,222,232,'+(.86*al).toFixed(3)+')';ctx.fillRect(-30*s,-14*s,28*s,28*s);
+    ctx.fillStyle='rgba(10,0,6,'+(.92*al).toFixed(3)+')';ctx.fillRect(-2*s,-13*s,26*s,26*s);
+    ctx.strokeStyle='rgba(255,255,255,'+(.95*al).toFixed(3)+')';ctx.lineWidth=1.7*s;ctx.strokeRect(-2*s,-13*s,26*s,26*s);
+    ctx.fillStyle=hsl(p.foot,al,0,sh);ctx.beginPath();ctx.arc(11*s,0,3.8*s,0,TAU);ctx.fill();
+    ctx.restore();
+  }else{
+    ctx.strokeStyle=hsl(p.leg,.92*al,0,sh);ctx.lineWidth=1.5*s;ctx.beginPath();
+    for(i=0;i<legs.length;i++){L=legs[i];ctx.moveTo(L.hwx,L.hwy);ctx.lineTo(L.kx,L.ky);ctx.lineTo(L.ex,L.ey)}
+    ctx.stroke();
+    ctx.lineWidth=1.2*s;ctx.beginPath();
+    for(i=0;i<legs.length;i++){L=legs[i];ctx.moveTo(L.kx+5*s,L.ky);ctx.arc(L.kx,L.ky,5*s,0,TAU)}
+    ctx.stroke();
+    ctx.beginPath();
+    for(i=0;i<legs.length;i++){L=legs[i];ctx.moveTo(L.ex+3.6*s,L.ey);ctx.arc(L.ex,L.ey,3.6*s,0,TAU)}
+    ctx.stroke();
+    ctx.fillStyle=hsl(p.leg,al,0,sh);ctx.beginPath();
+    for(i=0;i<legs.length;i++){L=legs[i];ctx.moveTo(L.ex+1.5*s,L.ey);ctx.arc(L.ex,L.ey,1.5*s,0,TAU)}
+    ctx.fill();
+    ctx.save();ctx.translate(cx,cy);ctx.rotate(c.h);
+    ctx.fillStyle='rgba(3,0,8,'+(.85*al).toFixed(3)+')';ctx.fillRect(-29*s,-12*s,24*s,24*s);ctx.fillRect(-1*s,-11*s,22*s,22*s);
+    ctx.strokeStyle='rgba(235,235,240,'+(.95*al).toFixed(3)+')';ctx.lineWidth=1.6*s;
+    ctx.strokeRect(-29*s,-12*s,24*s,24*s);ctx.strokeRect(-1*s,-11*s,22*s,22*s);ctx.strokeRect(5*s,-5*s,10*s,10*s);
+    ctx.fillStyle=hsl(p.leg,al,0,sh);ctx.fillRect(-20*s,-3*s,6*s,6*s);
+    ctx.restore();
+  }
+}
+
+function drawInsect(c){
+  var s=c.S,p=c.pal,legs=c.legs,sh=c.shift,al=c.alpha,i,L,k,sd,fl=Math.sin(now*26+c.sp.seed)*.14;
+  ghostDraw(c,p.ghost);
+  ctx.lineCap='round';ctx.lineJoin='round';
+  if(p.style==='outline'){
+    ctx.strokeStyle=hsl(p.leg,.85*al,0,sh);ctx.lineWidth=2*s;ctx.beginPath();
+    for(i=0;i<legs.length;i++){L=legs[i];ctx.moveTo(L.hwx,L.hwy);ctx.quadraticCurveTo(2*L.kx-(L.hwx+L.ex)/2,2*L.ky-(L.hwy+L.ey)/2,L.ex,L.ey)}
+    ctx.stroke();
+  }else{
+    ctx.strokeStyle=hsl(p.leg,.92*al,0,sh);ctx.lineWidth=1.7*s;ctx.beginPath();
+    for(i=0;i<legs.length;i++){L=legs[i];ctx.moveTo(L.hwx,L.hwy);ctx.lineTo(L.kx,L.ky);ctx.lineTo(L.ex,L.ey)}
+    ctx.stroke();
+  }
+  ctx.fillStyle=hsl(p.style==='outline'?p.blue:[60,95,62],al,0,sh);ctx.beginPath();
+  for(i=0;i<legs.length;i++){L=legs[i];ctx.moveTo(L.kx+2.4*s,L.ky);ctx.arc(L.kx,L.ky,2.4*s,0,TAU);ctx.moveTo(L.ex+3*s,L.ey);ctx.arc(L.ex,L.ey,3*s,0,TAU)}
+  ctx.fill();
+  ctx.save();ctx.translate(c.cx,c.cy);ctx.rotate(c.h);
+  if(p.style==='blocks'){
+    ctx.fillStyle=hsl(p.lime,.5*al,0,sh);
+    for(sd=-1;sd<=1;sd+=2){ctx.save();ctx.translate(-24*s,sd*32*s);ctx.rotate(sd*(.6+fl));ctx.fillRect(-6*s,-30*s,12*s,60*s);ctx.restore()}
+    ctx.fillStyle=hsl(p.crimson,al,0,sh);ctx.fillRect(-58*s,-16*s,44*s,32*s);
+    ctx.fillStyle='rgba(255,255,255,'+al.toFixed(3)+')';ctx.beginPath();
+    for(k=0;k<4;k++){ctx.moveTo((-50+k*9)*s+2.3*s,0);ctx.arc((-50+k*9)*s,0,2.3*s,0,TAU)}
+    ctx.fill();
+    for(k=0;k<4;k++){
+      ctx.fillStyle=hsl(p.lime,al,k===1||k===2?8:0,sh);
+      ctx.fillRect((-13+(k&1)*19)*s,(-19+(k>>1)*20)*s,17*s,18*s);
+    }
+    ctx.fillStyle=hsl(p.cyan,al,0,sh);ctx.fillRect(22*s,-12*s,27*s,24*s);
+    ctx.fillStyle='rgba(255,255,255,'+al.toFixed(3)+')';ctx.beginPath();
+    ctx.moveTo(40*s+2.4*s,-6*s);ctx.arc(40*s,-6*s,2.4*s,0,TAU);ctx.moveTo(40*s+2.4*s,6*s);ctx.arc(40*s,6*s,2.4*s,0,TAU);ctx.fill();
+    ctx.strokeStyle=hsl([340,100,72],.9*al,0,sh);ctx.lineWidth=1.4*s;ctx.strokeRect(-58*s,-19*s,107*s,38*s);
+  }else{
+    ctx.fillStyle=hsl(p.wing,.85*al,0,sh);
+    for(sd=-1;sd<=1;sd+=2){ctx.save();ctx.translate(-26*s,sd*30*s);ctx.rotate(sd*(.55+fl));ctx.fillRect(-7*s,-28*s,14*s,56*s);ctx.restore()}
+    ctx.fillStyle=hsl(p.body,.1*al,0,sh);ctx.fillRect(-48*s,-22*s,92*s,44*s);
+    ctx.strokeStyle=hsl(p.body,al,0,sh);ctx.lineWidth=2.2*s;ctx.strokeRect(-48*s,-22*s,92*s,44*s);
+    ctx.lineWidth=1.3*s;ctx.beginPath();
+    ctx.moveTo(-26*s,-22*s);ctx.lineTo(-26*s,22*s);ctx.moveTo(-4*s,-22*s);ctx.lineTo(-4*s,22*s);ctx.moveTo(18*s,-22*s);ctx.lineTo(18*s,22*s);
+    ctx.moveTo(-48*s,0);ctx.lineTo(18*s,0);ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,'+al.toFixed(3)+')';ctx.beginPath();
+    for(k=-1;k<=1;k++){ctx.moveTo(31*s+2.4*s,k*10*s);ctx.arc(31*s,k*10*s,2.4*s,0,TAU)}
+    ctx.fill();
+  }
+  var wob=Math.sin(now*3+c.sp.seed)*.25;
+  ctx.strokeStyle=hsl(p.style==='outline'?p.leg:p.cyan,.9*al,0,sh);ctx.lineWidth=1.5*s;ctx.beginPath();
+  for(sd=-1;sd<=1;sd+=2){
+    var a0=sd*(.5+wob),tx=(48+58*Math.cos(a0))*s,ty=(sd*7+58*Math.sin(a0))*s;
+    ctx.moveTo(48*s,sd*7*s);ctx.quadraticCurveTo(78*s,sd*22*s,tx,ty);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+/* ---------------- centipedes: follow-the-leader chain ---------------- */
+function Myriapod(sp,x,y){
+  var i,sd;
+  this.sp=sp;this.kind='myriapod';this.pal=PAL[sp.pal];this.shift=sp.shift;this.S=SC*sp.S;
+  this.n=sp.segs;this.h=rnd()*TAU;this.cx=x;this.cy=y;this.vx=0;this.vy=0;this.ghosts=[];this.gt=0;this.dg=0;this.alpha=1;this.dying=0;
+  this.stepK=.34;this.over=.6;this.stepT=.11;this.bp=.4;this.millR=125;this.gap=36*this.S;this.sz=35*this.S;
+  this.P=[];this.legs=[];
+  this.layout(x,y);
+  for(i=1;i<this.n;i++)for(sd=1;sd>=-1;sd-=2)
+    this.legs.push({i:i,sd:sd,fx:0,fy:0,sx:0,sy:0,tx:0,ty:0,st:-1,dur:.2,lift:0,hwx:0,hwy:0,kx:0,ky:0,ex:0,ey:0,R:0,l1:0,l2:0,nx:0,ny:0,rxw:0,ryw:0});
+  this.placeFeet();
+}
+Myriapod.prototype.layout=function(x,y){
+  var i;this.P.length=0;
+  for(i=0;i<this.n;i++)this.P.push({x:x-Math.cos(this.h)*i*this.gap,y:y-Math.sin(this.h)*i*this.gap,a:this.h});
+};
+Myriapod.prototype.geom=function(L){
+  var q=this.P[L.i],szi=this.sz*(1-.3*L.i/(this.n-1)),lf=this.sp.leg,ca=Math.cos(q.a),sa=Math.sin(q.a);
+  var nx=-sa*L.sd,ny=ca*L.sd,R=2.9*szi*lf,sk=.22;
+  L.nx=nx;L.ny=ny;L.hwx=q.x+nx*szi*.48;L.hwy=q.y+ny*szi*.48;
+  L.R=R;L.l1=1.8*szi*lf;L.l2=2.1*szi*lf;
+  L.rxw=L.hwx+(nx*Math.cos(sk)-ca*Math.sin(sk))*R;L.ryw=L.hwy+(ny*Math.cos(sk)-sa*Math.sin(sk))*R;
+};
+Myriapod.prototype.placeFeet=function(){
+  var j,L;
+  for(j=0;j<this.legs.length;j++){L=this.legs[j];this.geom(L);L.fx=L.rxw;L.fy=L.ryw;L.st=-1;L.kx=L.hwx;L.ky=L.hwy;L.ex=L.fx;L.ey=L.fy}
+};
+Myriapod.prototype.plant=function(L){touchAt(L.fx,L.fy,10*this.S+4,this.bp);sfx('step')};
+Myriapod.prototype.carry=function(dy){var i;for(i=0;i<this.n;i++)this.P[i].y+=dy;this.cy+=dy};
+Myriapod.prototype.teleport=function(x,y){this.cx=x;this.cy=y;this.ghosts.length=0;this.layout(x,y);this.placeFeet()};
+Myriapod.prototype.update=function(dt){
+  var s=this.S,b=brain,Q=this.P,hd=Q[0],n=this.n,i,j,L,q,p,ex,ey,dd,allow,legs=this.legs;
+  this.gap=36*s;this.sz=35*s;
+  var dx=b.tx-hd.x,dy=b.ty-hd.y,d=Math.sqrt(dx*dx+dy*dy)||1;
+  var v=lerp(75*s,200*s,clamp(d/(300*s),0,1))*this.sp.speed*b.speed;
+  if(this.dying)v*=.35;
+  this.h+=clamp(angDiff(this.h,Math.atan2(dy,dx)),-2.7*dt,2.7*dt);
+  this.h+=Math.sin(now*2.1+this.sp.seed)*.5*dt;
+  hd.x+=Math.cos(this.h)*v*dt;hd.y+=Math.sin(this.h)*v*dt;hd.a=this.h;
+  for(i=1;i<n;i++){
+    q=Q[i-1];p=Q[i];ex=q.x-p.x;ey=q.y-p.y;dd=Math.sqrt(ex*ex+ey*ey)||1e-3;
+    p.x=q.x-ex/dd*this.gap;p.y=q.y-ey/dd*this.gap;p.a=Math.atan2(ey,ex);
+  }
+  this.cx=hd.x;this.cy=hd.y;this.vx=Math.cos(this.h)*v;this.vy=Math.sin(this.h)*v;
+  for(j=0;j<legs.length;j++){
+    L=legs[j];this.geom(L);
+    allow=!(j>=2&&legs[j-2].st>=0)&&!(legs[j^1].st>=0);
+    stepLeg(this,L,L.hwx,L.hwy,L.rxw,L.ryw,this.vx,this.vy,dt,allow,L.R,L.l1+L.l2);
+  }
+  ghostTick(this,dt,spawnGhostChain);
+  this.dg-=dt;
+  if(this.dg<=0){this.dg=.12;if(!this.dying)for(i=0;i<n;i+=3)dimAround(Q[i].x,Q[i].y,62*s,.5)}
+};
+Myriapod.prototype.seg=function(i){
+  var s=this.S,p=this.pal,sh=this.shift,al=this.alpha,q=this.P[i],n=this.n;
+  var sz=this.sz*(1-.3*i/(n-1))*(i===0?1.08:1),hf=sz/2,lw=Math.max(1,1.6*s),u,v;
+  ctx.save();ctx.translate(q.x,q.y);ctx.rotate(q.a);
+  if(p.style==='panes'){
+    if(i===0){
+      ctx.fillStyle=hsl(p.pane,.95*al,0,sh);ctx.beginPath();ctx.arc(0,0,hf*1.05,0,TAU);ctx.fill();
+      ctx.strokeStyle=hsl(p.edge,al,0,sh);ctx.lineWidth=lw;ctx.stroke();
+      ctx.fillStyle=hsl(p.head,.3*al,0,sh);ctx.beginPath();ctx.arc(0,0,hf*.78,0,TAU);ctx.fill();
+      ctx.fillStyle=hsl(p.head,al,0,sh);ctx.beginPath();ctx.arc(0,0,hf*.38,0,TAU);ctx.fill();
+    }else{
+      ctx.fillStyle=hsl(p.seg,.95*al,0,sh);ctx.fillRect(-hf,-hf,sz,sz);
+      ctx.strokeStyle=hsl(p.edge,al,0,sh);ctx.lineWidth=lw;ctx.strokeRect(-hf,-hf,sz,sz);
+      ctx.strokeStyle=hsl(p.pane,.9*al,0,sh);ctx.lineWidth=Math.max(1,1.2*s);
+      ctx.strokeRect(-hf*.66,-hf*.66,sz*.66,sz*.66);
+      ctx.beginPath();ctx.moveTo(-hf*.66,0);ctx.lineTo(hf*.66,0);ctx.moveTo(0,-hf*.66);ctx.lineTo(0,hf*.66);ctx.stroke();
+    }
+  }else{
+    ctx.fillStyle=hsl(i===0?p.head:p.seg,.96*al,0,sh);ctx.fillRect(-hf,-hf,sz,sz);
+    ctx.strokeStyle=hsl(p.edge,al,0,sh);ctx.lineWidth=Math.max(1.2,2*s);ctx.strokeRect(-hf,-hf,sz,sz);
+    if(i===0){
+      ctx.fillStyle='rgba(255,255,255,'+al.toFixed(3)+')';ctx.beginPath();
+      ctx.moveTo(hf*.18+hf*.14,-hf*.35);ctx.arc(hf*.18,-hf*.35,hf*.14,0,TAU);
+      ctx.moveTo(hf*.18+hf*.14,hf*.35);ctx.arc(hf*.18,hf*.35,hf*.14,0,TAU);ctx.fill();
+    }else{
+      u=hf*.62;v=(i*7+this.sp.glyph)&3;
+      ctx.strokeStyle=hsl(p.pane,.95*al,0,sh);ctx.lineWidth=Math.max(1.2,2.2*s);ctx.beginPath();
+      if(v===0){ctx.moveTo(-u,-u);ctx.lineTo(-u,u*.8);ctx.lineTo(u,u*.8);ctx.lineTo(u,-u)}
+      else if(v===1){ctx.moveTo(-u,-u);ctx.lineTo(-u,u);ctx.moveTo(u,-u);ctx.lineTo(u,u);ctx.moveTo(-u,0);ctx.lineTo(u,0)}
+      else if(v===2){ctx.moveTo(u,-u);ctx.lineTo(-u,-u);ctx.lineTo(-u,u);ctx.lineTo(u,u);ctx.moveTo(-u,0);ctx.lineTo(u*.3,0)}
+      else{ctx.moveTo(-u,u);ctx.lineTo(-u,-u);ctx.lineTo(u,-u);ctx.lineTo(u,u)}
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+};
+Myriapod.prototype.draw=function(){
+  var s=this.S,p=this.pal,sh=this.shift,al=this.alpha,i,L,legs=this.legs;
+  ghostDraw(this,p.ghost);
+  for(i=0;i<legs.length;i++){L=legs[i];ik(L.hwx,L.hwy,L.fx,L.fy,L.l1,L.l2,L.nx,L.ny);L.kx=KX;L.ky=KY;L.ex=FX2;L.ey=FY2}
+  ctx.lineCap='round';ctx.lineJoin='round';
+  ctx.strokeStyle=hsl(p.leg,.8*al,0,sh);ctx.lineWidth=Math.max(1,1.3*s);ctx.beginPath();
+  for(i=0;i<legs.length;i++){L=legs[i];ctx.moveTo(L.hwx,L.hwy);ctx.lineTo(L.kx,L.ky);ctx.lineTo(L.ex,L.ey)}
+  ctx.stroke();
+  ctx.fillStyle=hsl(p.node,.95*al,0,sh);ctx.beginPath();
+  for(i=0;i<legs.length;i++){L=legs[i];ctx.moveTo(L.kx+2.2*s,L.ky);ctx.arc(L.kx,L.ky,2.2*s,0,TAU);ctx.moveTo(L.ex+2.8*s,L.ey);ctx.arc(L.ex,L.ey,2.8*s,0,TAU)}
+  ctx.fill();
+  for(i=this.n-1;i>=0;i--)this.seg(i);
+};
+
+function makeCreature(sp,x,y){return sp.kind==='myriapod'?new Myriapod(sp,x,y):new Walker(sp,x,y)}
+/* ================= sound (off until the speaker button is pressed) ================= */
+var AC=null,audioOn=false,nzBuf=null,lastTick=0;
+function audioToggle(){
+  try{
+    if(!AC){
+      var C=window.AudioContext||window.webkitAudioContext;if(!C)return false;
+      AC=new C();var len=Math.floor(AC.sampleRate*.5),b=AC.createBuffer(1,len,AC.sampleRate),d=b.getChannelData(0),i;
+      for(i=0;i<len;i++)d[i]=Math.random()*2-1;
+      nzBuf=b;
+    }
+    audioOn=!audioOn;
+    if(audioOn&&AC.state==='suspended')AC.resume();
+    return audioOn;
+  }catch(e){audioOn=false;return false}
+}
+function sfx(kind){
+  if(!audioOn||!AC)return;
+  var t=AC.currentTime;if(t-lastTick<.03)return;lastTick=t;
+  try{
+    var src=AC.createBufferSource(),bp=AC.createBiquadFilter(),g=AC.createGain();
+    src.buffer=nzBuf;bp.type='bandpass';
+    if(kind==='step'){bp.frequency.value=1800+Math.random()*2200;bp.Q.value=5;g.gain.setValueAtTime(.05,t);g.gain.exponentialRampToValueAtTime(.0001,t+.035)}
+    else{bp.frequency.value=500+Math.random()*500;bp.Q.value=2;g.gain.setValueAtTime(.07,t);g.gain.exponentialRampToValueAtTime(.0001,t+.09)}
+    src.connect(bp);bp.connect(g);g.connect(AC.destination);src.start(t,Math.random()*.3,.1);
+  }catch(e){}
+}
+
+/* ================= toast ================= */
+var toastT=0;
+function toast(msg){var el=$('toast');el.textContent=msg;el.classList.add('on');clearTimeout(toastT);toastT=setTimeout(function(){el.classList.remove('on')},2600)}
+
+/* ================= layout ================= */
+var lastW=0,hintOff=false;
+function resize(force){
+  VW=window.innerWidth;VH=window.innerHeight;DPR=Math.min(window.devicePixelRatio||1,2);
+  var w=Math.round(VW*DPR),h=Math.round(VH*DPR);
+  if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h}
+  cv.style.width=VW+'px';cv.style.height=VH+'px';
+  SC=clamp(VW/1080*1.3,.5,1.1);
+  if(cr)cr.S=SC*cr.sp.S;
+  if(oldCr)oldCr.S=SC*oldCr.sp.S;
+  if(force||VW!==lastW){lastW=VW;measure()}
+  else{
+    docH=Math.max(rootEl.scrollHeight,document.body.scrollHeight);
+    var wr=habwrap.getBoundingClientRect();
+    habR={x:wr.left+(window.pageXOffset||0),y:wr.top+(window.pageYOffset||0),w:wr.width,h:wr.height};
+  }
+}
+
+/* ================= input ================= */
+function userInput(){
+  auto.lastUser=now;
+  if(!hintOff){hintOff=true;setTimeout(function(){$('hint').classList.add('off')},2500)}
+}
+function setPointer(x,y,touch){P.x=x;P.y=y;P.last=now;P.active=true;P.touch=touch;userInput()}
+window.addEventListener('pointermove',function(e){if(e.pointerType!=='touch')setPointer(e.clientX,e.clientY,false)},{passive:true});
+/* taps on the page's own controls count as activity but never become a lure */
+function onUI(el){return !!(el&&el.closest&&el.closest('button,input,.drawer,.top a,.tabs a'))}
+window.addEventListener('pointerdown',function(e){if(e.pointerType!=='touch'){if(onUI(e.target)){userInput();return}setPointer(e.clientX,e.clientY,false);P.down=true}},{passive:true});
+window.addEventListener('pointerup',function(e){if(e.pointerType!=='touch'&&!onUI(e.target)){P.down=false;P.last=now}},{passive:true});
+document.addEventListener('mouseleave',function(){P.active=false});
+window.addEventListener('touchstart',function(e){var t=e.touches[0];if(onUI(e.target)){userInput();return}if(t){setPointer(t.clientX,t.clientY,true);P.down=true}},{passive:true});
+window.addEventListener('touchmove',function(e){var t=e.touches[0];if(t&&!onUI(e.target))setPointer(t.clientX,t.clientY,true)},{passive:true});
+window.addEventListener('touchend',function(e){if(onUI(e.target))return;P.down=e.touches.length>0;P.last=now},{passive:true});
+window.addEventListener('touchcancel',function(){P.down=false;P.last=now},{passive:true});
+window.addEventListener('wheel',userInput,{passive:true});
+window.addEventListener('keydown',function(e){
+  userInput();
+  if(e.key==='Escape'){if(drawerOpen)closeDrawer();else if(imm)setImm(false)}
+});
+
+/* ================= brain: where the creature wants to go ================= */
+function pickWander(){
+  if(!cr)return;
+  var x0,x1,y0,y1,inHab=false,tx=null,ty=null,k,a,i,tries;
+  if(imm){x0=30;x1=VW-30;y0=scrollY+30;y1=scrollY+VH-30}
+  else{
+    var inside=cr.cx>=habR.x&&cr.cx<=habR.x+habR.w&&cr.cy>=habR.y&&cr.cy<=habR.y+habR.h;
+    var vis=habR.y+habR.h>scrollY+80&&habR.y<scrollY+VH-80;
+    if(inside&&vis){inHab=true;x0=habR.x+56;x1=habR.x+habR.w-56;y0=Math.max(habR.y+34,scrollY+30);y1=Math.min(habR.y+habR.h-34,scrollY+VH-30)}
+    else{x0=18;x1=VW-18;y0=scrollY+70;y1=scrollY+VH-90}
+  }
+  if(!inHab&&!imm&&N){
+    for(tries=0;tries<10;tries++){
+      k=Math.floor((y0+rnd()*(y1-y0))/ROWH);a=rowsM.get(k);
+      if(!a||!a.length)continue;
+      i=a[Math.floor(rnd()*a.length)];
+      if(ST[i]!==0)continue;
+      tx=X[i]+WD[i]/2;ty=Y[i]+HT[i]/2;break;
+    }
+  }
+  if(tx===null){tx=x0+rnd()*Math.max(1,x1-x0);ty=y0+rnd()*Math.max(1,y1-y0)}
+  brain.tx=tx;brain.ty=ty;
+  brain.nextPick=now+(cr.kind==='myriapod'?3.5+rnd()*3:2+rnd()*3);
+}
+function autoLabel(){
+  var b=$('autoBtn'),s=!auto.on?'off':auto.armed?'on':'paused';
+  if(b._s===s)return;b._s=s;
+  $('autoTx').textContent=s==='off'?'Autopilot off':s==='on'?'Autopilot on':'Autopilot paused';
+  b.classList.toggle('on',s==='on');b.classList.toggle('paused',s==='paused');
+  b.setAttribute('aria-pressed',auto.on?'true':'false');
+}
+function nextSpecies(){
+  var i=1+Math.floor(rnd()*(SPN-1));
+  loadSpecies(i,{delay:0});
+  toast('Next species: '+curSp.name);
+}
+function think(dt){
+  if(!cr)return;
+  var lure=P.active&&(P.down||now-P.last<(P.touch?3.5:5));
+  auto.armed=auto.on&&!lure&&now-auto.lastUser>7&&!imm&&!drawerOpen;   /* nothing is holding autopilot back */
+  auto.running=auto.armed&&now>auto.start;                              /* ...and the start delay has passed */
+  if(lure){
+    brain.mode='lure';
+    brain.orbit+=dt*(cr.kind==='myriapod'?.9:2.1);
+    var rr=cr.millR*cr.S*(cr.kind==='myriapod'?1:.55);
+    brain.tx=P.x+Math.cos(brain.orbit)*rr;brain.ty=P.y+scrollY+Math.sin(brain.orbit)*rr;
+    brain.speed=P.down?1.5:1.2;
+  }else if(auto.running){
+    if(brain.mode!=='auto'){brain.mode='auto';auto.y=Math.max(cr.cy,habR.y+habR.h*.5);auto.ph=0;auto.sy=scrollY;auto.done=0}
+    auto.ph+=dt*.5;
+    var lim=docH-VH*.34,close=Math.hypot(cr.cx-auto.x,cr.cy-auto.y)<(230*cr.S+70);
+    if(close&&auto.y<lim)auto.y+=40*dt;
+    auto.x=VW/2+Math.sin(auto.ph)*Math.min(VW*.36,300);
+    brain.tx=auto.x;brain.ty=auto.y;brain.speed=.8;
+    var want=clamp(auto.y-VH*.4,0,Math.max(0,docH-VH));
+    auto.sy+=(want-auto.sy)*Math.min(1,dt*1.8);
+    window.scrollTo(0,auto.sy);auto.set=true;
+    if(auto.y>=lim-2){if(!auto.done)auto.done=now;else if(now-auto.done>2.5){auto.done=0;nextSpecies();return}}
+  }else{
+    if(brain.mode!=='wander'){brain.mode='wander';brain.nextPick=0}
+    brain.speed=.85;
+    if(now>brain.nextPick||Math.hypot(cr.cx-brain.tx,cr.cy-brain.ty)<26*cr.S)pickWander();
+  }
+  if(!imm&&(cr.cy<scrollY-VH*.7||cr.cy>scrollY+VH*1.7))
+    cr.teleport(clamp(cr.cx,40,VW-40),cr.cy<scrollY?scrollY+24:scrollY+VH-24);
+  autoLabel();
+}
+
+/* ================= species ================= */
+function setTheme(sp){
+  var pal=PAL[sp.pal],st=rootEl.style;
+  st.setProperty('--acc',hsl(pal.acc,1,0,sp.shift));
+  st.setProperty('--frame',pal.frame?hsl(pal.frame,1,0,sp.shift):'#27252f');
+}
+var marks={};
+try{marks=JSON.parse(localStorage.getItem('crawlpedia.marks')||'{}')||{}}catch(e){marks={}}
+function saveMarks(){try{localStorage.setItem('crawlpedia.marks',JSON.stringify(marks))}catch(e){}}
+function updateBm(){
+  var b=$('bmBtn'),on=!!marks[curSp.id];
+  b.setAttribute('aria-pressed',on?'true':'false');
+  b.setAttribute('aria-label',on?'Remove bookmark':'Bookmark this species');
+}
+function loadSpecies(i,opts){
+  opts=opts||{};
+  curSp=species(i);
+  $('title').textContent=curSp.name;$('hname').textContent=curSp.name;
+  setTheme(curSp);
+  ST=null;
+  art.innerHTML=articleHTML(curSp);
+  window.scrollTo(0,0);scrollY=0;lastSY=window.pageYOffset||0;auto.sy=0;auto.set=false;
+  measure();
+  oldCr=cr;if(oldCr){oldCr.fade=now;oldCr.bp=0;oldCr.dying=1}
+  cr=makeCreature(curSp,habR.x+habR.w/2,habR.y+habR.h/2);
+  brain.mode='wander';brain.nextPick=0;pickWander();
+  auto.start=now+(opts.delay!=null?opts.delay:4);auto.done=0;
+  updateBm();
+  if(drawerOpen)renderList();
+}
+
+/* ================= species drawer ================= */
+var dr={f:'all',q:'',shown:100};
+function matches(sp){
+  if(dr.f==='mark'){if(!marks[sp.id])return false}
+  else if(dr.f!=='all'&&sp.kind!==dr.f)return false;
+  if(dr.q&&sp.name.toLowerCase().indexOf(dr.q)<0)return false;
+  return true;
+}
+function renderList(){
+  var out=[],cnt=0,total=0,i,sp,list=$('dList');
+  for(i=0;i<SPN;i++){
+    sp=species(i);if(!matches(sp))continue;
+    total++;
+    if(cnt<dr.shown){
+      cnt++;
+      out.push('<li><button class="row'+(curSp&&sp.id===curSp.id?' cur':'')+'" data-i="'+sp.id+'"><span class="sw" style="background:'+hsl(PAL[sp.pal].acc,1,0,sp.shift)+'"></span><span class="nm">'+esc(sp.name)+'</span><span class="kd">'+KINDS[sp.kind].label+'</span></button></li>');
+    }
+  }
+  if(!total)out.push('<li class="empty">'+(dr.f==='mark'?'No bookmarked species yet. Use the bookmark button above the article.':'No species match that search.')+'</li>');
+  else if(total>cnt)out.push('<li><button class="more" id="dMore">Show more ('+(total-cnt)+' left)</button></li>');
+  list.innerHTML=out.join('');
+}
+function openDrawer(){
+  drawerOpen=true;$('drawer').hidden=false;$('scrim').hidden=false;renderList();
+  var l=$('dList'),c=l.querySelector('.cur');if(c)l.scrollTop=Math.max(0,c.offsetTop-l.clientHeight/2);
+}
+function closeDrawer(){drawerOpen=false;$('drawer').hidden=true;$('scrim').hidden=true}
+$('menuBtn').addEventListener('click',openDrawer);
+$('countBtn').addEventListener('click',openDrawer);
+$('scrim').addEventListener('click',closeDrawer);
+$('dClose').addEventListener('click',closeDrawer);
+$('dRandom').addEventListener('click',function(){closeDrawer();nextSpecies()});
+$('dSearch').addEventListener('input',function(){dr.q=this.value.trim().toLowerCase();dr.shown=100;renderList()});
+$('dChips').addEventListener('click',function(e){
+  var b=e.target.closest('button');if(!b)return;
+  dr.f=b.getAttribute('data-f');dr.shown=100;
+  Array.prototype.forEach.call(this.children,function(x){x.classList.toggle('on',x===b)});
+  renderList();
+});
+$('dList').addEventListener('click',function(e){
+  var m=e.target.closest('#dMore');
+  if(m){dr.shown+=150;renderList();return}
+  var b=e.target.closest('button.row');
+  if(b){closeDrawer();loadSpecies(parseInt(b.getAttribute('data-i'),10),{delay:5})}
+});
+
+/* ================= buttons ================= */
+$('bmBtn').addEventListener('click',function(){
+  var id=curSp.id;
+  if(marks[id]){delete marks[id];toast('Bookmark removed')}else{marks[id]=1;toast('Bookmarked '+curSp.name)}
+  saveMarks();updateBm();if(drawerOpen)renderList();
+});
+$('sndBtn').addEventListener('click',function(){
+  var on=audioToggle(),b=$('sndBtn');
+  b.setAttribute('aria-pressed',on?'true':'false');
+  b.setAttribute('aria-label',on?'Turn sound off':'Turn sound on');
+  $('sndOn').style.display=on?'':'none';$('sndOff').style.display=on?'none':'';
+  if(on)sfx('chew');
+});
+function setImm(on){
+  imm=on;rootEl.classList.toggle('imm',on);
+  $('fsBtn').setAttribute('aria-label',on?'Exit fullscreen':'Fullscreen');
+  if(cr)pickWander();
+}
+$('fsBtn').addEventListener('click',function(){setImm(!imm)});
+$('autoBtn').addEventListener('click',function(){
+  if(auto.on&&!auto.armed){auto.lastUser=-99;P.last=-99;auto.start=now;toast('Autopilot resumed');autoLabel();return}  /* paused: a tap resumes it */
+  auto.on=!auto.on;
+  if(auto.on){auto.lastUser=-99;auto.start=now}
+  toast(auto.on?'Autopilot on':'Autopilot off');
+  autoLabel();
+});
+Array.prototype.forEach.call(document.querySelectorAll('.stub'),function(a){
+  a.addEventListener('click',function(e){e.preventDefault();toast('Not part of this demo.')});
+});
+$('tTalk').addEventListener('click',function(e){e.preventDefault();toast('No talk page yet.')});
+$('tSrc').addEventListener('click',function(e){e.preventDefault();restoreAll();toast('Source restored.')});
+$('tHist').addEventListener('click',function(e){e.preventDefault();toast(stats.eaten+' words eaten this session.')});
+art.addEventListener('click',function(e){if(e.target.closest&&e.target.closest('a'))e.preventDefault()});
+
+/* ================= frame loop ================= */
+function drawRing(){
+  if(!P.active)return;
+  var idle=now-P.last,a;
+  if(P.touch)a=P.down?1:Math.max(0,1-(idle-.2)/1.2);
+  else a=idle<3?1:Math.max(0,1-(idle-3)/1.2);
+  if(a<=0)return;
+  var R=clamp(VW*.06,24,46)*(P.down?.82:1);
+  ctx.lineWidth=1.5;ctx.strokeStyle='rgba(255,255,255,'+(.62*a).toFixed(3)+')';
+  ctx.beginPath();ctx.arc(P.x,P.y,R,0,TAU);ctx.stroke();
+}
+function draw(){
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.clearRect(0,0,VW,VH);
+  drawWords();
+  ctx.save();ctx.translate(0,-scrollY);
+  if(oldCr)oldCr.draw();
+  if(cr)cr.draw();
+  ctx.restore();
+  drawTags();
+  drawRing();
+}
+var lastT=0;
+function frame(ts){
+  requestAnimationFrame(frame);
+  var t=ts/1000;if(!lastT)lastT=t;
+  var dt=Math.min(.05,t-lastT);lastT=t;now=t;
+  scrollY=window.pageYOffset||rootEl.scrollTop||0;
+  var dsy=scrollY-lastSY;lastSY=scrollY;
+  var ours=auto.set&&Math.abs(scrollY-auto.sy)<=2.5;
+  if(dsy!==0&&!ours){userInput();if(cr)cr.carry(dsy*.9);if(oldCr)oldCr.carry(dsy*.9)}
+  if(!ours&&!auto.running)auto.sy=scrollY;
+  auto.set=false;
+  think(dt);
+  if(cr)cr.update(dt);
+  if(oldCr){oldCr.alpha=1-(now-oldCr.fade)/.5;if(oldCr.alpha<=0)oldCr=null;else oldCr.update(dt)}
+  updateWords();updateTags(dt);
+  draw();
+}
+
+/* ================= start ================= */
+var roT=0;
+try{if(window.matchMedia&&!window.matchMedia('(pointer:coarse)').matches)$('hint').textContent='Move the cursor to lure the crawler. Scroll to send it into the article.'}catch(e){}
+resize(true);
+loadSpecies(0,{delay:4});
+requestAnimationFrame(frame);
+window.addEventListener('resize',function(){resize(false)});
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(function(){resize(true)});
+window.addEventListener('load',function(){resize(true)});
+if(window.ResizeObserver){new ResizeObserver(function(){clearTimeout(roT);roT=setTimeout(measure,120)}).observe(art)}
+window.__cw={load:loadSpecies,species:species,get cr(){return cr},P:P,auto:auto,brain:brain,stats:stats,setImm:setImm,measure:measure,act:act,tags:tags};
+})();
+</script>
+
+</body></html>
